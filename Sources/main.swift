@@ -29,8 +29,7 @@ enum MascotState {
     case working    // mid usage: concentrating, one sweat drop
     case stressed   // high usage: worried, two sweat drops
     case critical   // near limit: X-eyes, on fire, red-shifted
-    case tired      // 100%: lying on the ground, spent
-    case sleeping   // error / not logged in: gray, eyes closed
+    case sleeping   // 100%, error, or not logged in: gray, eyes closed
 }
 
 // The mascot is the Claude Code pixel critter, drawn on a 12x12 logical
@@ -65,22 +64,6 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let oy = rect.minY + (rect.height - u * grid) / 2
     func px(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat = 1, _ h: CGFloat = 1) {
         NSRect(x: ox + x * u, y: oy + y * u, width: w * u, height: h * u).fill()
-    }
-
-    // tired (100%) lies flat on the ground — a different silhouette from the
-    // standing poses, so it's drawn on its own.
-    if state == .tired {
-        body.setFill()
-        px(0, 0, 1, 2)                                  // far nub
-        px(1, 0, 7, 3)                                  // body flat on the ground
-        px(7, 0, 5, 4)                                  // head resting at the right
-        px(2, 3, 1, 2); px(4, 3, 1, 2)                  // legs in the air
-        ink.setFill()
-        px(7, 2, 2, 1); px(10, 2, 2, 1)                 // eyes closed, spent
-        px(9, 1)                                        // small panting mouth
-        sweatBlue.setFill()
-        px(11, 4, 1, 2)                                 // sweat flying off
-        return
     }
 
     // the critter: four stubby legs, wide body with side nubs, head on top
@@ -129,9 +112,6 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
         px(0, 5); px(11, 5)                                 // hot at the arm tips
         ink.setFill()
 
-    case .tired:
-        break                                               // drawn above
-
     case .sleeping:
         px(3, 6, 2, 1); px(7, 6, 2, 1)                      // closed eyes
         px(5, 4, 2, 1)                                      // tiny mouth
@@ -167,7 +147,7 @@ func mascotIcon(_ state: MascotState) -> NSImage {
 }
 
 func mascotState(forPeak peak: Double) -> MascotState {
-    if peak >= 100 { return .tired }
+    if peak >= 100 { return .sleeping }   // hit the limit: asleep until reset
     if peak >= 90 { return .critical }
     if peak >= 75 { return .stressed }
     if peak >= 40 { return .working }

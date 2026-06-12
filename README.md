@@ -14,8 +14,7 @@ your **peak** utilization (the higher of the 5-hour session limit and the
 | Working hard | 40–74% | focused, one sweat drop |
 | Stressed | 75–89% | frowning, two sweat drops; % turns orange |
 | Overwhelmed | 90–99% | X-eyes, on fire, red-shifted body; % turns red |
-| Exhausted | 100% | lying on the ground, spent |
-| Asleep | error / not logged in | gray, eyes closed, Z |
+| Asleep | 100% · error / not logged in | gray, eyes closed, Z |
 
 The mascot is drawn entirely in code on a 12×12 pixel grid — no image
 assets — and rasterized at 2x so it stays crisp on retina menu bars.
@@ -77,7 +76,7 @@ open ClaudeUsage.app --args --demo
 ```
 
 Cycles synthetic usage values every 3 seconds (happy → working → stressed →
-on fire → flat on the ground) — handy for screenshots and screen recordings. In demo mode no
+on fire → asleep) — handy for screenshots and screen recordings. In demo mode no
 credentials are read and no network calls are made.
 
 ## Quit
