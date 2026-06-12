@@ -383,14 +383,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return String(repeating: "█", count: filled) + String(repeating: "░", count: slots - filled)
     }
 
+    // Info rows are view-backed: AppKit dims a disabled item's title (even
+    // attributed text with explicit colors), but never touches a custom view.
+    func addInfo(_ menu: NSMenu, _ attr: NSAttributedString) {
+        let label = NSTextField(labelWithAttributedString: attr)
+        label.maximumNumberOfLines = 0
+        // intrinsicContentSize under-measures multiline labels; ask the cell.
+        let huge = NSRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let size = label.cell?.cellSize(forBounds: huge) ?? label.intrinsicContentSize
+        let w = ceil(size.width) + 4
+        let h = ceil(size.height)
+        label.frame = NSRect(x: 14, y: 3, width: w, height: h)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: w + 28, height: h + 6))
+        view.addSubview(label)
+        let item = NSMenuItem()
+        item.view = view
+        menu.addItem(item)
+    }
+
     func addRow(_ menu: NSMenu, _ label: String, _ window: UsageWindow?) {
         guard let w = window else { return }
         let pct = Int(w.utilization.rounded())
-        let item = NSMenuItem(title: "\(label)", action: nil, keyEquivalent: "")
-        item.isEnabled = false
         let line = "\(bar(w.utilization))  \(pct)%"
         let reset = fmtReset(w.resetsAt)
-        // Explicit colors: disabled menu items dim any text without them.
         let attr = NSMutableAttributedString(
             string: "\(label)\n",
             attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
@@ -399,30 +414,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             string: "\(line)" + (reset.isEmpty ? "" : "   ·   \(reset)"),
             attributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
                          .foregroundColor: NSColor.labelColor.withAlphaComponent(0.8)]))
-        item.attributedTitle = attr
-        menu.addItem(item)
+        addInfo(menu, attr)
     }
 
     func rebuildMenu(usage: Usage?, error: String?) {
         let menu = statusItem.menu!
         menu.removeAllItems()
 
-        let header = NSMenuItem(title: "Claude Usage", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        header.attributedTitle = NSAttributedString(
+        addInfo(menu, NSAttributedString(
             string: "Claude Usage",
             attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                         .foregroundColor: NSColor.labelColor])
-        menu.addItem(header)
+                         .foregroundColor: NSColor.labelColor]))
         menu.addItem(.separator())
 
         if let error = error {
-            let item = NSMenuItem(title: error, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            item.attributedTitle = NSAttributedString(
+            addInfo(menu, NSAttributedString(
                 string: error,
-                attributes: [.foregroundColor: NSColor.labelColor])
-            menu.addItem(item)
+                attributes: [.font: NSFont.systemFont(ofSize: 13),
+                             .foregroundColor: NSColor.labelColor]))
         } else if let u = usage {
             addRow(menu, "Current session (5-hour)", u.fiveHour)
             addRow(menu, "Weekly (7-day, all models)", u.sevenDay)
@@ -432,7 +441,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 var label = "Extra usage credits"
                 if let used = u.extraUsedCredits, let limit = u.extraMonthlyLimit {
                     let cur = u.extraCurrency ?? ""
-                    label += String(format: "  (%.0f / %.0f %@)", used, limit, cur)
+                    // the API reports credits in cents
+                    label += String(format: "  (%.2f / %.2f %@)", used / 100, limit / 100, cur)
                 }
                 addRow(menu, label, UsageWindow(utilization: eu, resetsAt: nil))
             }
@@ -441,6 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let refresh = NSMenuItem(title: "Refresh now", action: #selector(refreshNow), keyEquivalent: "r")
         refresh.target = self
+        refresh.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
         menu.addItem(refresh)
         let quit = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
