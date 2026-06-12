@@ -19,6 +19,133 @@ struct Usage {
     let extraCurrency: String?
 }
 
+// MARK: - Mascot
+
+// The menu bar icon is the little Claude Code pixel critter, with an
+// expression that tracks how hard you're working it. Drawn entirely in
+// code — no image assets.
+enum MascotState {
+    case happy      // low usage: smiling
+    case working    // mid usage: concentrating, one sweat drop
+    case stressed   // high usage: worried, two sweat drops
+    case critical   // near limit: X-eyes, red-shifted
+    case sleeping   // error / not logged in: gray, eyes closed
+}
+
+// The mascot is the Claude Code pixel critter, drawn on a 12x12 logical
+// pixel grid. Coordinate space: standard AppKit (y-up, origin bottom-left).
+func drawMascot(_ state: MascotState, in rect: NSRect) {
+    func col(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor {
+        NSColor(calibratedRed: r / 255.0, green: g / 255.0, blue: b / 255.0, alpha: 1.0)
+    }
+    let terracotta  = col(217, 119, 87)     // Claude brand #D97757
+    let ink         = col(31, 30, 29)       // #1F1E1D
+    let sweatBlue   = col(96, 160, 214)
+    let flameOrange = col(226, 88, 34)
+    let flameYellow = col(245, 166, 35)
+
+    func blend(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
+        NSColor(calibratedRed: a.redComponent   + (b.redComponent   - a.redComponent)   * t,
+                green:         a.greenComponent + (b.greenComponent - a.greenComponent) * t,
+                blue:          a.blueComponent  + (b.blueComponent  - a.blueComponent)  * t,
+                alpha: 1.0)
+    }
+
+    let body: NSColor
+    switch state {
+    case .critical: body = blend(terracotta, col(200, 76, 76), 0.75)
+    case .sleeping: body = col(160, 150, 142)
+    default:        body = terracotta
+    }
+
+    let grid: CGFloat = 12
+    let u  = min(rect.width, rect.height) / grid
+    let ox = rect.minX + (rect.width  - u * grid) / 2
+    let oy = rect.minY + (rect.height - u * grid) / 2
+    func px(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat = 1, _ h: CGFloat = 1) {
+        NSRect(x: ox + x * u, y: oy + y * u, width: w * u, height: h * u).fill()
+    }
+
+    // the critter: four stubby legs, wide body with side nubs, head on top
+    body.setFill()
+    px(2, 0, 1, 2); px(4, 0, 1, 2); px(7, 0, 1, 2); px(9, 0, 1, 2)
+    px(1, 2, 10, 3)
+    px(0, 3, 1, 2); px(11, 3, 1, 2)
+    px(2, 5, 8, 4)
+
+    ink.setFill()
+    switch state {
+
+    case .happy:
+        px(4, 6, 1, 2); px(7, 6, 1, 2)                      // open eyes
+        px(4, 4); px(5, 3); px(6, 3); px(7, 4)              // smile
+
+    case .working:
+        px(4, 6); px(7, 6)                                  // focused squint
+        px(5, 4, 2, 1)                                      // flat mouth
+        sweatBlue.setFill()
+        px(10, 7, 1, 2)                                     // one sweat drop
+        ink.setFill()
+
+    case .stressed:
+        px(4, 6, 1, 2); px(7, 6, 1, 2)                      // wide eyes
+        px(4, 4); px(5, 5); px(6, 5); px(7, 4)              // frown
+        sweatBlue.setFill()
+        px(1, 7, 1, 2); px(10, 7, 1, 2)                     // two sweat drops
+        ink.setFill()
+
+    case .critical:
+        for ex: CGFloat in [2, 7] {                          // X eyes
+            px(ex, 5); px(ex + 2, 5); px(ex + 1, 6); px(ex, 7); px(ex + 2, 7)
+        }
+        px(5, 3, 2, 2)                                      // open mouth
+        flameOrange.setFill()                               // on fire
+        px(3, 9, 6, 1); px(4, 10); px(7, 10)
+        flameYellow.setFill()
+        px(5, 10, 2, 1); px(6, 11)
+        ink.setFill()
+
+    case .sleeping:
+        px(3, 6, 2, 1); px(7, 6, 2, 1)                      // closed eyes
+        px(5, 4, 2, 1)                                      // tiny mouth
+        px(8, 11, 4, 1); px(10, 10); px(9, 9); px(8, 8, 4, 1)   // Z
+    }
+}
+
+func mascotIcon(_ state: MascotState) -> NSImage {
+    // Rasterize once at 2x (36px, an exact 3px per grid cell) and let 1x
+    // displays downsample with antialiasing — rendering directly at 18px
+    // puts grid cells on half-pixel boundaries and muddies the face.
+    let px = 36
+    let pt: CGFloat = 18
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                     pixelsWide: px, pixelsHigh: px,
+                                     bitsPerSample: 8, samplesPerPixel: 4,
+                                     hasAlpha: true, isPlanar: false,
+                                     colorSpaceName: .calibratedRGB,
+                                     bytesPerRow: 0, bitsPerPixel: 0),
+          let ctx = NSGraphicsContext(bitmapImageRep: rep)
+    else { return NSImage(size: NSSize(width: pt, height: pt)) }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    ctx.cgContext.clear(CGRect(x: 0, y: 0, width: px, height: px))
+    ctx.shouldAntialias = false   // crisp pixel-art edges
+    drawMascot(state, in: NSRect(x: 0, y: 0, width: px, height: px))
+    ctx.flushGraphics()
+    NSGraphicsContext.restoreGraphicsState()
+    rep.size = NSSize(width: pt, height: pt)
+    let img = NSImage(size: NSSize(width: pt, height: pt))
+    img.addRepresentation(rep)
+    return img
+}
+
+func mascotState(forPeak peak: Double) -> MascotState {
+    if peak >= 90 { return .critical }
+    if peak >= 75 { return .stressed }
+    if peak >= 40 { return .working }
+    return .happy
+}
+
 // MARK: - Credentials
 
 struct Credentials {
@@ -184,9 +311,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "Claude …"
             button.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+            button.imagePosition = .imageLeft
         }
+        setStatus(.sleeping, " …")
         let menu = NSMenu()
         menu.autoenablesItems = false
         statusItem.menu = menu
@@ -200,7 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func tick() {
         guard let creds = try? readCredentials() else {
             DispatchQueue.main.async {
-                self.setTitle("Claude ⚠")
+                self.setStatus(.sleeping, " ⚠")
                 self.rebuildMenu(usage: nil, error: "Not logged in (no Claude Code credentials)")
             }
             return
@@ -211,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     switch result {
                     case .success(let usage): self.update(usage)
                     case .failure(let msg):
-                        self.setTitle("Claude ⚠")
+                        self.setStatus(.sleeping, " ⚠")
                         self.rebuildMenu(usage: nil, error: msg.message)
                     }
                 }
@@ -219,13 +347,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func setTitle(_ s: String) { statusItem.button?.title = s }
+    func setStatus(_ state: MascotState, _ title: String) {
+        statusItem.button?.image = mascotIcon(state)
+        statusItem.button?.title = title
+        statusItem.button?.contentTintColor = nil
+    }
 
     func update(_ usage: Usage) {
-        // Headline = the most-consumed of the primary limits.
+        // Headline = the most-consumed of the primary limits. Threshold on the
+        // same rounded value we display so the mascot/tint never contradict
+        // the number next to them.
         let candidates = [usage.fiveHour?.utilization, usage.sevenDay?.utilization].compactMap { $0 }
-        let peak = candidates.max() ?? 0
-        setTitle("⛁ \(Int(peak.rounded()))%")
+        let peak = (candidates.max() ?? 0).rounded()
+        setStatus(mascotState(forPeak: peak), " \(Int(peak))%")
         if let button = statusItem.button {
             button.contentTintColor = peak >= 90 ? .systemRed : (peak >= 75 ? .systemOrange : nil)
         }

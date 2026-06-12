@@ -2,9 +2,22 @@
 
 A tiny native menu bar app that shows your Claude usage limits at a glance.
 
-The menu bar title shows your **peak** utilization (the higher of the 5-hour
-session limit and the 7-day weekly limit), e.g. `⛁ 62%`. It turns orange at
-≥75% and red at ≥90%.
+The menu bar shows the little Claude Code pixel critter, whose mood tracks
+your **peak** utilization (the higher of the 5-hour session limit and the
+7-day weekly limit), next to the percentage:
+
+![Mascot states](assets/mascot-states.png)
+
+| State | When | Look |
+|---|---|---|
+| Happy | < 40% | smiling |
+| Working hard | 40–74% | focused, one sweat drop |
+| Stressed | 75–89% | frowning, two sweat drops; % turns orange |
+| Overwhelmed | ≥ 90% | X-eyes, on fire, red-shifted body; % turns red |
+| Asleep | error / not logged in | gray, eyes closed, Z |
+
+The mascot is drawn entirely in code on a 12×12 pixel grid — no image
+assets — and rasterized at 2x so it stays crisp on retina menu bars.
 
 Click it for the full breakdown:
 
