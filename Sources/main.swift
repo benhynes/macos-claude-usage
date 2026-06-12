@@ -159,6 +159,10 @@ enum CredError: Error { case notFound, parse }
 
 struct UsageError: Error { let message: String }
 
+// --demo cycles synthetic usage values (no keychain, no network) so the full
+// range of mascot states can be screenshotted or screen-recorded.
+let demoMode = CommandLine.arguments.contains("--demo")
+
 // Claude Code's public OAuth client id (same one used by the CLI).
 let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 let keychainService = "Claude Code-credentials"
@@ -319,10 +323,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.autoenablesItems = false
         statusItem.menu = menu
         rebuildMenu(usage: nil, error: "Loading…")
-        tick()
-        timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            self?.tick()
+        if demoMode {
+            demoTick()
+            timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                self?.demoTick()
+            }
+        } else {
+            tick()
+            timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+                self?.tick()
+            }
         }
+    }
+
+    var demoStep = 0
+
+    func demoTick() {
+        let peaks: [Double] = [12, 55, 82, 96]
+        let peak = peaks[demoStep % peaks.count]
+        demoStep += 1
+        update(Usage(
+            fiveHour: UsageWindow(utilization: peak, resetsAt: Date().addingTimeInterval(5_580)),
+            sevenDay: UsageWindow(utilization: 9, resetsAt: Date().addingTimeInterval(116_400)),
+            sevenDayOpus: nil,
+            sevenDaySonnet: UsageWindow(utilization: 0, resetsAt: nil),
+            extraUtilization: 31,
+            extraUsedCredits: 3361,
+            extraMonthlyLimit: 11000,
+            extraCurrency: "CAD"))
     }
 
     func tick() {
@@ -347,22 +375,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func setStatus(_ state: MascotState, _ title: String) {
-        statusItem.button?.image = mascotIcon(state)
-        statusItem.button?.title = title
-        statusItem.button?.contentTintColor = nil
+    func setStatus(_ state: MascotState, _ title: String, color: NSColor? = nil) {
+        guard let button = statusItem.button else { return }
+        button.image = mascotIcon(state)
+        if let color = color {
+            // Color via attributedTitle — setting contentTintColor makes the
+            // menu bar drop the title entirely on macOS 26.
+            button.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium),
+                             .foregroundColor: color])
+        } else {
+            button.title = title
+        }
     }
 
     func update(_ usage: Usage) {
         // Headline = the most-consumed of the primary limits. Threshold on the
-        // same rounded value we display so the mascot/tint never contradict
+        // same rounded value we display so the mascot/color never contradict
         // the number next to them.
         let candidates = [usage.fiveHour?.utilization, usage.sevenDay?.utilization].compactMap { $0 }
         let peak = (candidates.max() ?? 0).rounded()
-        setStatus(mascotState(forPeak: peak), " \(Int(peak))%")
-        if let button = statusItem.button {
-            button.contentTintColor = peak >= 90 ? .systemRed : (peak >= 75 ? .systemOrange : nil)
-        }
+        let color: NSColor? = peak >= 90 ? .systemRed : (peak >= 75 ? .systemOrange : nil)
+        setStatus(mascotState(forPeak: peak), " \(Int(peak))%", color: color)
         rebuildMenu(usage: usage, error: nil)
     }
 

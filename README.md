@@ -69,6 +69,16 @@ whole thing).
 System Settings → General → Login Items → add `ClaudeUsage.app`. Because
 `LSUIElement` is set, it runs with no Dock icon — menu bar only.
 
+## Demo mode
+
+```sh
+open ClaudeUsage.app --args --demo
+```
+
+Cycles synthetic usage values every 3 seconds (happy → working → stressed →
+on fire) — handy for screenshots and screen recordings. In demo mode no
+credentials are read and no network calls are made.
+
 ## Quit
 
 Click the menu bar item → **Quit** (⌘Q), or `pkill -x ClaudeUsage`.
