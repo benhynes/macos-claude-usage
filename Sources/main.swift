@@ -28,7 +28,8 @@ enum MascotState {
     case happy      // low usage: smiling
     case working    // mid usage: concentrating, one sweat drop
     case stressed   // high usage: worried, two sweat drops
-    case critical   // near limit: X-eyes, red-shifted
+    case critical   // near limit: X-eyes, on fire, red-shifted
+    case burnout    // 100%: charred, smoking, one last ember
     case sleeping   // error / not logged in: gray, eyes closed
 }
 
@@ -41,8 +42,10 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let terracotta  = col(217, 119, 87)     // Claude brand #D97757
     let ink         = col(31, 30, 29)       // #1F1E1D
     let sweatBlue   = col(96, 160, 214)
-    let flameOrange = col(226, 88, 34)
-    let flameYellow = col(245, 166, 35)
+    let flameOrange = col(242, 100, 25)
+    let flameYellow = col(255, 200, 60)
+    let pale        = col(235, 230, 225)
+    let smoke       = col(165, 158, 152)
 
     func blend(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
         NSColor(calibratedRed: a.redComponent   + (b.redComponent   - a.redComponent)   * t,
@@ -54,6 +57,7 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let body: NSColor
     switch state {
     case .critical: body = blend(terracotta, col(200, 76, 76), 0.75)
+    case .burnout:  body = col(95, 85, 78)              // charred
     case .sleeping: body = col(160, 150, 142)
     default:        body = terracotta
     }
@@ -99,10 +103,28 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
             px(ex, 5); px(ex + 2, 5); px(ex + 1, 6); px(ex, 7); px(ex + 2, 7)
         }
         px(5, 3, 2, 2)                                      // open mouth
-        flameOrange.setFill()                               // on fire
-        px(3, 9, 6, 1); px(4, 10); px(7, 10)
+        // on fire: tapered tongues with a yellow core, embers licking the
+        // head edge so it reads as flame, not a hat
+        flameOrange.setFill()
+        px(4, 8); px(7, 8)                                  // embers on the head
+        px(3, 9); px(7, 9); px(8, 9)
+        px(4, 10); px(6, 10); px(7, 10)
+        px(5, 11); px(7, 11)                                // two tips
         flameYellow.setFill()
-        px(5, 10, 2, 1); px(6, 11)
+        px(4, 9, 3, 1); px(5, 10)                           // hot core at the base
+        ink.setFill()
+
+    case .burnout:
+        for ex: CGFloat in [2, 7] {                          // pale X eyes
+            pale.setFill()
+            px(ex, 5); px(ex + 2, 5); px(ex + 1, 6); px(ex, 7); px(ex + 2, 7)
+        }
+        pale.setFill()
+        px(5, 4, 2, 1)                                      // flat, spent mouth
+        flameOrange.setFill()
+        px(6, 8)                                            // one last ember
+        smoke.setFill()
+        px(4, 9, 2, 1); px(5, 11, 2, 1)                     // drifting smoke puffs
         ink.setFill()
 
     case .sleeping:
@@ -140,6 +162,7 @@ func mascotIcon(_ state: MascotState) -> NSImage {
 }
 
 func mascotState(forPeak peak: Double) -> MascotState {
+    if peak >= 100 { return .burnout }
     if peak >= 90 { return .critical }
     if peak >= 75 { return .stressed }
     if peak >= 40 { return .working }
@@ -339,7 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var demoStep = 0
 
     func demoTick() {
-        let peaks: [Double] = [12, 55, 82, 96]
+        let peaks: [Double] = [12, 55, 82, 96, 100]
         let peak = peaks[demoStep % peaks.count]
         demoStep += 1
         update(Usage(

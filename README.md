@@ -13,7 +13,8 @@ your **peak** utilization (the higher of the 5-hour session limit and the
 | Happy | < 40% | smiling |
 | Working hard | 40–74% | focused, one sweat drop |
 | Stressed | 75–89% | frowning, two sweat drops; % turns orange |
-| Overwhelmed | ≥ 90% | X-eyes, on fire, red-shifted body; % turns red |
+| Overwhelmed | 90–99% | X-eyes, on fire, red-shifted body; % turns red |
+| Burned out | 100% | charred, smoking, one last ember |
 | Asleep | error / not logged in | gray, eyes closed, Z |
 
 The mascot is drawn entirely in code on a 12×12 pixel grid — no image
@@ -76,7 +77,7 @@ open ClaudeUsage.app --args --demo
 ```
 
 Cycles synthetic usage values every 3 seconds (happy → working → stressed →
-on fire) — handy for screenshots and screen recordings. In demo mode no
+on fire → burned out) — handy for screenshots and screen recordings. In demo mode no
 credentials are read and no network calls are made.
 
 ## Quit
