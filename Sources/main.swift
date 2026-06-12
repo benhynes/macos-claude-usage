@@ -390,13 +390,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.isEnabled = false
         let line = "\(bar(w.utilization))  \(pct)%"
         let reset = fmtReset(w.resetsAt)
+        // Explicit colors: disabled menu items dim any text without them.
         let attr = NSMutableAttributedString(
             string: "\(label)\n",
-            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)])
+            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                         .foregroundColor: NSColor.labelColor])
         attr.append(NSAttributedString(
             string: "\(line)" + (reset.isEmpty ? "" : "   ·   \(reset)"),
             attributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-                         .foregroundColor: NSColor.secondaryLabelColor]))
+                         .foregroundColor: NSColor.labelColor.withAlphaComponent(0.8)]))
         item.attributedTitle = attr
         menu.addItem(item)
     }
@@ -407,12 +409,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let header = NSMenuItem(title: "Claude Usage", action: nil, keyEquivalent: "")
         header.isEnabled = false
+        header.attributedTitle = NSAttributedString(
+            string: "Claude Usage",
+            attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                         .foregroundColor: NSColor.labelColor])
         menu.addItem(header)
         menu.addItem(.separator())
 
         if let error = error {
             let item = NSMenuItem(title: error, action: nil, keyEquivalent: "")
             item.isEnabled = false
+            item.attributedTitle = NSAttributedString(
+                string: error,
+                attributes: [.foregroundColor: NSColor.labelColor])
             menu.addItem(item)
         } else if let u = usage {
             addRow(menu, "Current session (5-hour)", u.fiveHour)
