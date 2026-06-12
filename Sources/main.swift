@@ -29,7 +29,7 @@ enum MascotState {
     case working    // mid usage: concentrating, one sweat drop
     case stressed   // high usage: worried, two sweat drops
     case critical   // near limit: X-eyes, on fire, red-shifted
-    case burnout    // 100%: charred, smoking, one last ember
+    case tired      // 100%: lying on the ground, spent
     case sleeping   // error / not logged in: gray, eyes closed
 }
 
@@ -44,8 +44,6 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let sweatBlue   = col(96, 160, 214)
     let flameOrange = col(242, 100, 25)
     let flameYellow = col(255, 200, 60)
-    let pale        = col(235, 230, 225)
-    let smoke       = col(165, 158, 152)
 
     func blend(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
         NSColor(calibratedRed: a.redComponent   + (b.redComponent   - a.redComponent)   * t,
@@ -57,7 +55,6 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let body: NSColor
     switch state {
     case .critical: body = blend(terracotta, col(200, 76, 76), 0.75)
-    case .burnout:  body = col(95, 85, 78)              // charred
     case .sleeping: body = col(160, 150, 142)
     default:        body = terracotta
     }
@@ -68,6 +65,22 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
     let oy = rect.minY + (rect.height - u * grid) / 2
     func px(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat = 1, _ h: CGFloat = 1) {
         NSRect(x: ox + x * u, y: oy + y * u, width: w * u, height: h * u).fill()
+    }
+
+    // tired (100%) lies flat on the ground — a different silhouette from the
+    // standing poses, so it's drawn on its own.
+    if state == .tired {
+        body.setFill()
+        px(0, 0, 1, 2)                                  // far nub
+        px(1, 0, 7, 3)                                  // body flat on the ground
+        px(7, 0, 5, 4)                                  // head resting at the right
+        px(2, 3, 1, 2); px(4, 3, 1, 2)                  // legs in the air
+        ink.setFill()
+        px(7, 2, 2, 1); px(10, 2, 2, 1)                 // eyes closed, spent
+        px(9, 1)                                        // small panting mouth
+        sweatBlue.setFill()
+        px(11, 4, 1, 2)                                 // sweat flying off
+        return
     }
 
     // the critter: four stubby legs, wide body with side nubs, head on top
@@ -110,22 +123,14 @@ func drawMascot(_ state: MascotState, in rect: NSRect) {
         px(3, 9); px(7, 9); px(8, 9)
         px(4, 10); px(6, 10); px(7, 10)
         px(5, 11); px(7, 11)                                // two tips
+        px(0, 6); px(11, 6); px(11, 7)                      // arm flames
         flameYellow.setFill()
         px(4, 9, 3, 1); px(5, 10)                           // hot core at the base
+        px(0, 5); px(11, 5)                                 // hot at the arm tips
         ink.setFill()
 
-    case .burnout:
-        for ex: CGFloat in [2, 7] {                          // pale X eyes
-            pale.setFill()
-            px(ex, 5); px(ex + 2, 5); px(ex + 1, 6); px(ex, 7); px(ex + 2, 7)
-        }
-        pale.setFill()
-        px(5, 4, 2, 1)                                      // flat, spent mouth
-        flameOrange.setFill()
-        px(6, 8)                                            // one last ember
-        smoke.setFill()
-        px(4, 9, 2, 1); px(5, 11, 2, 1)                     // drifting smoke puffs
-        ink.setFill()
+    case .tired:
+        break                                               // drawn above
 
     case .sleeping:
         px(3, 6, 2, 1); px(7, 6, 2, 1)                      // closed eyes
@@ -162,7 +167,7 @@ func mascotIcon(_ state: MascotState) -> NSImage {
 }
 
 func mascotState(forPeak peak: Double) -> MascotState {
-    if peak >= 100 { return .burnout }
+    if peak >= 100 { return .tired }
     if peak >= 90 { return .critical }
     if peak >= 75 { return .stressed }
     if peak >= 40 { return .working }
