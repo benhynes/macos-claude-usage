@@ -71,8 +71,45 @@ whole thing).
 
 ## Run at login
 
-System Settings → General → Login Items → add `ClaudeUsage.app`. Because
-`LSUIElement` is set, it runs with no Dock icon — menu bar only.
+Two options:
+
+**Login Items:** System Settings → General → Login Items → add
+`ClaudeUsage.app`. Because `LSUIElement` is set, it runs with no Dock icon —
+menu bar only.
+
+**LaunchAgent** (more robust; also works around a macOS 27 beta bug where
+LaunchServices refuses to `open` the bundle with error -10825): save this as
+`~/Library/LaunchAgents/local.claudeusage.plist`, with the path adjusted to
+where the repo lives, then `launchctl bootstrap gui/$(id -u)
+~/Library/LaunchAgents/local.claudeusage.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>local.claudeusage</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/macos-claude-usage/ClaudeUsage.app/Contents/MacOS/ClaudeUsage</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key><true/>
+    </dict>
+    <key>ProcessType</key><string>Interactive</string>
+    <key>AssociatedBundleIdentifiers</key><string>local.claudeusage</string>
+</dict>
+</plist>
+```
+
+`KeepAlive.Crashed` restarts the app only if it actually crashes — a clean
+**Quit** (or `pkill`, which AppKit handles as a normal termination) stays
+quit. After a rebuild, restart it with
+`launchctl kickstart gui/$(id -u)/local.claudeusage`.
+To remove: `launchctl bootout gui/$(id -u)/local.claudeusage` and delete the
+plist.
 
 ## Demo mode
 
