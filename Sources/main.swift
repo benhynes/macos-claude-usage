@@ -8,15 +8,26 @@ struct UsageWindow {
     let resetsAt: Date?
 }
 
+// One rate-limit bucket as shown in the menu, e.g. the 5-hour session,
+// the all-models weekly, or a model-scoped weekly like "Weekly · Fable".
+struct LimitRow {
+    let label: String
+    let window: UsageWindow
+}
+
+// Extra-usage credit spend (the API's `spend` object; amounts are in
+// minor units — divide by 10^exponent for the display value).
+struct SpendInfo {
+    let percent: Double
+    let used: Double?
+    let limit: Double?
+    let currency: String?
+    let exponent: Int
+}
+
 struct Usage {
-    let fiveHour: UsageWindow?
-    let sevenDay: UsageWindow?
-    let sevenDayOpus: UsageWindow?
-    let sevenDaySonnet: UsageWindow?
-    let extraUtilization: Double?   // % of extra/credit budget used
-    let extraUsedCredits: Double?
-    let extraMonthlyLimit: Double?
-    let extraCurrency: String?
+    let rows: [LimitRow]
+    let spend: SpendInfo?
 }
 
 // MARK: - Mascot
@@ -273,14 +284,90 @@ let isoFormatter: ISO8601DateFormatter = {
     return f
 }()
 
+func parseDate(_ s: String?) -> Date? {
+    guard let s = s else { return nil }
+    if let d = isoFormatter.date(from: s) { return d }
+    if let d = ISO8601DateFormatter().date(from: s) { return d }
+    // The API sends microsecond precision ("…59.658040+00:00"), which
+    // ISO8601DateFormatter rejects — retry with the fraction stripped.
+    if let dot = s.firstIndex(of: "."),
+       let tzStart = s[dot...].firstIndex(where: { $0 == "+" || $0 == "Z" || $0 == "-" }) {
+        return ISO8601DateFormatter().date(from: String(s[..<dot]) + String(s[tzStart...]))
+    }
+    return nil
+}
+
 func parseWindow(_ dict: Any?) -> UsageWindow? {
     guard let d = dict as? [String: Any],
           let util = d["utilization"] as? Double else { return nil }
-    var reset: Date?
-    if let s = d["resets_at"] as? String {
-        reset = isoFormatter.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    return UsageWindow(utilization: util, resetsAt: parseDate(d["resets_at"] as? String))
+}
+
+// The `limits` array is the current source of truth: session, weekly_all,
+// and weekly_scoped entries (per-model caps like Fable, or per-surface).
+func parseLimits(_ json: [String: Any]) -> [LimitRow] {
+    guard let arr = json["limits"] as? [[String: Any]] else { return [] }
+    var rows: [LimitRow] = []
+    for item in arr {
+        guard let kind = item["kind"] as? String,
+              let pct = item["percent"] as? Double else { continue }
+        let reset = parseDate(item["resets_at"] as? String)
+        let label: String
+        switch kind {
+        case "session":    label = "Current session (5-hour)"
+        case "weekly_all": label = "Weekly (7-day, all models)"
+        case "weekly_scoped":
+            var name = "scoped"
+            if let scope = item["scope"] as? [String: Any] {
+                if let model = scope["model"] as? [String: Any],
+                   let display = model["display_name"] as? String {
+                    name = display
+                } else if let surface = scope["surface"] as? String {
+                    name = surface
+                }
+            }
+            label = "Weekly · \(name)"
+        default:           label = kind
+        }
+        rows.append(LimitRow(label: label, window: UsageWindow(utilization: pct, resetsAt: reset)))
     }
-    return UsageWindow(utilization: util, resetsAt: reset)
+    return rows
+}
+
+// Older API shape: top-level five_hour / seven_day / seven_day_opus /
+// seven_day_sonnet objects. Used only when `limits` is absent.
+func parseLegacyRows(_ json: [String: Any]) -> [LimitRow] {
+    let fields: [(String, String)] = [
+        ("five_hour", "Current session (5-hour)"),
+        ("seven_day", "Weekly (7-day, all models)"),
+        ("seven_day_opus", "Weekly · Opus"),
+        ("seven_day_sonnet", "Weekly · Sonnet"),
+    ]
+    return fields.compactMap { key, label in
+        parseWindow(json[key]).map { LimitRow(label: label, window: $0) }
+    }
+}
+
+func parseSpend(_ json: [String: Any]) -> SpendInfo? {
+    if let spend = json["spend"] as? [String: Any], (spend["enabled"] as? Bool) == true {
+        return SpendInfo(
+            percent: (spend["percent"] as? Double) ?? 0,
+            used: (spend["used"] as? [String: Any])?["amount_minor"] as? Double,
+            limit: (spend["limit"] as? [String: Any])?["amount_minor"] as? Double,
+            currency: (spend["used"] as? [String: Any])?["currency"] as? String,
+            exponent: ((spend["used"] as? [String: Any])?["exponent"] as? Int) ?? 2)
+    }
+    // legacy extra_usage object (credits in cents)
+    if let extra = json["extra_usage"] as? [String: Any],
+       let util = extra["utilization"] as? Double {
+        return SpendInfo(
+            percent: util,
+            used: extra["used_credits"] as? Double,
+            limit: extra["monthly_limit"] as? Double,
+            currency: extra["currency"] as? String,
+            exponent: 2)
+    }
+    return nil
 }
 
 func fetchUsage(token: String, completion: @escaping (Result<Usage, UsageError>) -> Void) {
@@ -298,18 +385,9 @@ func fetchUsage(token: String, completion: @escaping (Result<Usage, UsageError>)
            let msg = error["message"] as? String {
             completion(.failure(UsageError(message: msg))); return
         }
-        let extra = json["extra_usage"] as? [String: Any]
-        let usage = Usage(
-            fiveHour: parseWindow(json["five_hour"]),
-            sevenDay: parseWindow(json["seven_day"]),
-            sevenDayOpus: parseWindow(json["seven_day_opus"]),
-            sevenDaySonnet: parseWindow(json["seven_day_sonnet"]),
-            extraUtilization: extra?["utilization"] as? Double,
-            extraUsedCredits: extra?["used_credits"] as? Double,
-            extraMonthlyLimit: extra?["monthly_limit"] as? Double,
-            extraCurrency: extra?["currency"] as? String
-        )
-        completion(.success(usage))
+        var rows = parseLimits(json)
+        if rows.isEmpty { rows = parseLegacyRows(json) }
+        completion(.success(Usage(rows: rows, spend: parseSpend(json))))
     }.resume()
 }
 
@@ -351,14 +429,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let peak = peaks[demoStep % peaks.count]
         demoStep += 1
         update(Usage(
-            fiveHour: UsageWindow(utilization: peak, resetsAt: Date().addingTimeInterval(5_580)),
-            sevenDay: UsageWindow(utilization: 9, resetsAt: Date().addingTimeInterval(116_400)),
-            sevenDayOpus: nil,
-            sevenDaySonnet: UsageWindow(utilization: 0, resetsAt: nil),
-            extraUtilization: 31,
-            extraUsedCredits: 3361,
-            extraMonthlyLimit: 11000,
-            extraCurrency: "CAD"))
+            rows: [
+                LimitRow(label: "Current session (5-hour)",
+                         window: UsageWindow(utilization: peak, resetsAt: Date().addingTimeInterval(5_580))),
+                LimitRow(label: "Weekly (7-day, all models)",
+                         window: UsageWindow(utilization: 9, resetsAt: Date().addingTimeInterval(116_400))),
+                LimitRow(label: "Weekly · Fable",
+                         window: UsageWindow(utilization: 12, resetsAt: Date().addingTimeInterval(116_400))),
+            ],
+            spend: SpendInfo(percent: 31, used: 3361, limit: 11000, currency: "CAD", exponent: 2)))
     }
 
     func tick() {
@@ -399,10 +478,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func update(_ usage: Usage) {
-        // Headline = the most-consumed of the primary limits. Threshold on the
-        // same rounded value we display so the mascot/color never contradict
-        // the number next to them.
-        let candidates = [usage.fiveHour?.utilization, usage.sevenDay?.utilization].compactMap { $0 }
+        // Headline = the most-consumed limit (session, weekly, or a
+        // model-scoped weekly like Fable). Threshold on the same rounded
+        // value we display so the mascot/color never contradict the number
+        // next to them.
+        let candidates = usage.rows.map { $0.window.utilization }
         let peak = (candidates.max() ?? 0).rounded()
         let color: NSColor? = peak >= 90 ? .systemRed : (peak >= 75 ? .systemOrange : nil)
         setStatus(mascotState(forPeak: peak), " \(Int(peak))%", color: color)
@@ -476,18 +556,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 attributes: [.font: NSFont.systemFont(ofSize: 13),
                              .foregroundColor: NSColor.labelColor]))
         } else if let u = usage {
-            addRow(menu, "Current session (5-hour)", u.fiveHour)
-            addRow(menu, "Weekly (7-day, all models)", u.sevenDay)
-            if let opus = u.sevenDayOpus { addRow(menu, "Weekly · Opus", opus) }
-            if let sonnet = u.sevenDaySonnet { addRow(menu, "Weekly · Sonnet", sonnet) }
-            if let eu = u.extraUtilization {
+            for row in u.rows { addRow(menu, row.label, row.window) }
+            if let s = u.spend {
                 var label = "Extra usage credits"
-                if let used = u.extraUsedCredits, let limit = u.extraMonthlyLimit {
-                    let cur = u.extraCurrency ?? ""
-                    // the API reports credits in cents
-                    label += String(format: "  (%.2f / %.2f %@)", used / 100, limit / 100, cur)
+                if let used = s.used, let limit = s.limit {
+                    let div = pow(10.0, Double(s.exponent))
+                    let cur = s.currency ?? ""
+                    label += String(format: "  (%.2f / %.2f %@)", used / div, limit / div, cur)
                 }
-                addRow(menu, label, UsageWindow(utilization: eu, resetsAt: nil))
+                addRow(menu, label, UsageWindow(utilization: s.percent, resetsAt: nil))
             }
         }
 

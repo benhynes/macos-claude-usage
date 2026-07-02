@@ -3,8 +3,9 @@
 A tiny native menu bar app that shows your Claude usage limits at a glance.
 
 The menu bar shows the little Claude Code pixel critter, whose mood tracks
-your **peak** utilization (the higher of the 5-hour session limit and the
-7-day weekly limit), next to the percentage:
+your **peak** utilization (the highest of all your rate limits — the 5-hour
+session, the 7-day weekly, and any model-scoped weekly limits like Fable),
+next to the percentage:
 
 ![Mascot states](assets/mascot-states.png)
 
@@ -23,8 +24,12 @@ Click it for the full breakdown:
 
 - Current session (5-hour) — % used + reset time
 - Weekly (7-day, all models) — % used + reset time
-- Weekly Opus / Sonnet (when applicable)
+- Model-scoped weekly limits (e.g. Weekly · Fable) when your plan has them
 - Extra usage credits (used / monthly limit)
+
+Limits are read from the usage API's `limits` array, so new buckets Anthropic
+adds (per-model or per-surface) show up automatically; the older top-level
+fields are still parsed as a fallback.
 
 ## Build
 
