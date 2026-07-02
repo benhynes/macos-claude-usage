@@ -176,7 +176,11 @@ struct Credentials {
 
 enum CredError: Error { case notFound, parse }
 
-struct UsageError: Error { let message: String }
+struct UsageError: Error {
+    let message: String
+    var status: Int? = nil
+    var retryAfter: TimeInterval? = nil
+}
 
 // --demo cycles synthetic usage values (no keychain, no network) so the full
 // range of mascot states can be screenshotted or screen-recorded.
@@ -378,12 +382,19 @@ func fetchUsage(token: String, completion: @escaping (Result<Usage, UsageError>)
     req.timeoutInterval = 20
     URLSession.shared.dataTask(with: req) { data, resp, err in
         if let err = err { completion(.failure(UsageError(message: err.localizedDescription))); return }
+        let http = resp as? HTTPURLResponse
+        if http?.statusCode == 429 {
+            let retry = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+            completion(.failure(UsageError(message: "Rate limited. Please try again later.",
+                                           status: 429, retryAfter: retry)))
+            return
+        }
         guard let data = data,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { completion(.failure(UsageError(message: "bad response"))); return }
+        else { completion(.failure(UsageError(message: "bad response", status: http?.statusCode))); return }
         if let error = json["error"] as? [String: Any],
            let msg = error["message"] as? String {
-            completion(.failure(UsageError(message: msg))); return
+            completion(.failure(UsageError(message: msg, status: http?.statusCode))); return
         }
         var rows = parseLimits(json)
         if rows.isEmpty { rows = parseLegacyRows(json) }
@@ -396,7 +407,14 @@ func fetchUsage(token: String, completion: @escaping (Result<Usage, UsageError>)
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
-    let refreshInterval: TimeInterval = 120  // seconds
+    let refreshInterval: TimeInterval = 300  // seconds
+
+    // Rate-limit handling: keep showing the last good reading and back off
+    // exponentially instead of hammering a 429ing endpoint.
+    var lastUsage: Usage?
+    var lastUsageAt: Date?
+    var consecutive429 = 0
+    var nextAllowedFetch = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -440,7 +458,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             spend: SpendInfo(percent: 31, used: 3361, limit: 11000, currency: "CAD", exponent: 2)))
     }
 
-    func tick() {
+    func tick(force: Bool = false) {
+        if !force && Date() < nextAllowedFetch { return }
         guard let creds = try? readCredentials() else {
             DispatchQueue.main.async {
                 self.setStatus(.sleeping, " ⚠")
@@ -452,13 +471,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fetchUsage(token: fresh.accessToken) { result in
                 DispatchQueue.main.async {
                     switch result {
-                    case .success(let usage): self.update(usage)
-                    case .failure(let msg):
-                        self.setStatus(.sleeping, " ⚠")
-                        self.rebuildMenu(usage: nil, error: msg.message)
+                    case .success(let usage):
+                        self.consecutive429 = 0
+                        self.nextAllowedFetch = .distantPast
+                        self.lastUsage = usage
+                        self.lastUsageAt = Date()
+                        self.update(usage)
+                    case .failure(let err):
+                        self.handleFailure(err)
                     }
                 }
             }
+        }
+    }
+
+    func handleFailure(_ err: UsageError) {
+        if err.status == 429 {
+            // back off: 5 → 10 → 20 → 40 → 60 min (or whatever Retry-After
+            // asks for, if longer)
+            consecutive429 += 1
+            var delay = min(3600, refreshInterval * pow(2, Double(consecutive429 - 1)))
+            if let ra = err.retryAfter, ra > delay { delay = min(3600, ra) }
+            nextAllowedFetch = Date().addingTimeInterval(delay)
+        }
+        // A failed refresh shouldn't blank the display: keep the last good
+        // reading (mascot included) and note its age in the menu.
+        if let last = lastUsage {
+            let fmt = DateFormatter()
+            fmt.timeStyle = .short
+            let at = lastUsageAt.map { " from \(fmt.string(from: $0))" } ?? ""
+            update(last, note: "\(err.message)  ·  showing data\(at)")
+        } else {
+            setStatus(.sleeping, " ⚠")
+            rebuildMenu(usage: nil, error: err.message)
         }
     }
 
@@ -477,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func update(_ usage: Usage) {
+    func update(_ usage: Usage, note: String? = nil) {
         // Headline = the most-consumed limit (session, weekly, or a
         // model-scoped weekly like Fable). Threshold on the same rounded
         // value we display so the mascot/color never contradict the number
@@ -486,7 +531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let peak = (candidates.max() ?? 0).rounded()
         let color: NSColor? = peak >= 90 ? .systemRed : (peak >= 75 ? .systemOrange : nil)
         setStatus(mascotState(forPeak: peak), " \(Int(peak))%", color: color)
-        rebuildMenu(usage: usage, error: nil)
+        rebuildMenu(usage: usage, error: nil, note: note)
     }
 
     func fmtReset(_ date: Date?) -> String {
@@ -540,7 +585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addInfo(menu, attr)
     }
 
-    func rebuildMenu(usage: Usage?, error: String?) {
+    func rebuildMenu(usage: Usage?, error: String?, note: String? = nil) {
         let menu = statusItem.menu!
         menu.removeAllItems()
 
@@ -568,6 +613,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        if let note = note {
+            addInfo(menu, NSAttributedString(
+                string: note,
+                attributes: [.font: NSFont.systemFont(ofSize: 11),
+                             .foregroundColor: NSColor.labelColor.withAlphaComponent(0.6)]))
+        }
+
         menu.addItem(.separator())
         let refresh = NSMenuItem(title: "Refresh now", action: #selector(refreshNow), keyEquivalent: "r")
         refresh.target = self
@@ -577,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quit)
     }
 
-    @objc func refreshNow() { tick() }
+    @objc func refreshNow() { tick(force: true) }
 }
 
 let app = NSApplication.shared

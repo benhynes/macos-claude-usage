@@ -45,7 +45,10 @@ standalone, dependency-free `ClaudeUsage.app`.
 
 - Reads your Claude Code OAuth token from the login Keychain item
   `Claude Code-credentials` (the same one the `claude` CLI uses).
-- Polls `https://api.anthropic.com/api/oauth/usage` every 2 minutes.
+- Polls `https://api.anthropic.com/api/oauth/usage` every 5 minutes. If the
+  endpoint rate-limits (429), it backs off exponentially (up to an hour,
+  honoring `Retry-After`) and keeps showing the last good reading with a
+  note of its age instead of blanking out.
 - Refreshes the access token automatically when it's near expiry and writes the
   rotated credentials back to the Keychain (kept in sync with the CLI).
 
